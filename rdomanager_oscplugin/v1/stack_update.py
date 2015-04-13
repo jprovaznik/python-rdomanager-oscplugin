@@ -13,41 +13,45 @@
 #   under the License.
 #
 
-from __future__ import print_function
+"""Plugin action implementation"""
 
-import argparse
 import logging
-import sys
-
-from cliff import lister
-from openstackclient.common import utils
 
 from cliff import command
+from tripleo_common import updates
 
 
-class UpdatePlugin(IntrospectionParser, lister.Lister):
-    """Heat stack update plugin"""
+class UpdatePlugin(command.Command):
+    """Overcloud Stack Update plugin"""
 
-    log = logging.getLogger(__name__ + ".StackUpdatePlugin")
+    auth_required = False
+    log = logging.getLogger(__name__ + ".UpdatePlugin")
+
+    def get_parser(self, prog_name):
+        parser = super(UpdatePlugin, self).get_parser(prog_name)
+        parser.add_argument('-s', '--stack', dest='stack_id',
+                            default='overcloud')
+        parser.add_argument('-p', '--plan', dest='plan_id',
+                            default='overcloud')
+        parser.add_argument('-i', '--interactive', dest='interactive',
+                            action='store_true')
+        parser.add_argument('-c', '--continue', dest='continue_update',
+                            action='store_true')
+        return parser
 
     def take_action(self, parsed_args):
-
         self.log.debug("take_action(%s)" % parsed_args)
-        client = self.app.client_manager.rdomanager_oscplugin.baremetal()
+        management = self.app.client_manager.rdomanager_oscplugin.management()
+        orchestration = self.app.client_manager.rdomanager_oscplugin.orchestration()
+        update_manager = updates.UpdateManager(
+                tuskarclient=management,
+                heatclient=orchestration,
+                plan_id=parsed_args.plan_id,
+                stack_id=parsed_args.stack_id)
+        if not parsed_args.continue_update:
+            update_manager.update()
 
-        statuses = []
-
-        for node in client.node.list():
-            self.log.debug("Getting introspection status of Ironic node {0}"
-                           .format(node.uuid))
-            auth_token = self.app.client_manager.auth_ref.auth_token
-            statuses.append((node.uuid, discoverd_client.get_status(
-                node.uuid,
-                base_url=parsed_args.discoverd_url,
-                auth_token=auth_token)))
-
-        return (
-            ("Node UUID", "Finished", "Error"),
-            list((node_uuid, status['finished'], status['error'])
-                 for (node_uuid, status) in statuses)
-        )
+        if parsed_args.interactive:
+            update_manager.do_interactive_update()
+        else:
+            print update_manager.get_status()
